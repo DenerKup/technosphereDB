@@ -3,8 +3,8 @@
 #include <cstring>
 #include <memory>
 
-#include <iostream>
-#include <cassert>
+// #include <iostream>
+// #include <cassert>
 
 const int Database::T = 10;
 
@@ -36,7 +36,9 @@ void Database::close()
 
 void Database::insert(const DatabaseNode::Record &key, const DatabaseNode::Record &value)
 {
+//     std::cerr << "Insert begin\n";
     if (m_rootNode->keyCount() == 2 * T - 1) {
+// 	std::cerr << "Inserting full\n";
 	DatabaseNode *s = new DatabaseNode(
 	    &m_globConfiguration,
 	    m_pageReadWriter,
@@ -57,14 +59,22 @@ void Database::insert(const DatabaseNode::Record &key, const DatabaseNode::Recor
 
 	m_rootNode = s;
     } else {
+// 	std::cerr << "Inserting not full\n";
 	insertNonFull(m_rootNode, key, value);
+    }
+
+    DatabaseNode::Record trash;
+    if (!select(key, trash)) {
+	exit(0);
     }
 }
 
 void Database::insertNonFull(DatabaseNode *node, const DatabaseNode::Record &key, const DatabaseNode::Record &value)
 {
+    DatabaseNode::Record trash;
+
     size_t i = node->keyCount() - 1;
-    while (node->keyCount() && i >= 0 && key < node->keys()[i]) {
+    while (node->keyCount() && i >= 0 && key < node->keys()[i]) { // seeking last <= key
 	if (i == 0) {
 	    i--;
 	    break;
@@ -80,11 +90,16 @@ void Database::insertNonFull(DatabaseNode *node, const DatabaseNode::Record &key
     }
 
     if (node->isLeaf()) {
-	size_t insPos = i + 1;
-	node->keys().insert(node->keys().begin() + insPos, DatabaseNode::Record::rawCopyFrom(key));
-	node->data().insert(node->data().begin() + insPos, DatabaseNode::Record::rawCopyFrom(value));
+	i++;
+	node->keys().insert(node->keys().begin() + i, DatabaseNode::Record::rawCopyFrom(key));
+	node->data().insert(node->data().begin() + i, DatabaseNode::Record::rawCopyFrom(value));
 	node->setKeyCount(node->keyCount() + 1);
+
+// 	if (!selectFromNode(node, key, trash)) {
+// 	    std::cerr << "GFUCK 1\n";
+// 	}
     } else {
+// 	std::cerr << "going deeper\n";
 	i++;
 	DatabaseNode *child = 0;
 	if (node->linkedNodesRootPageNumbers()[i] != DatabaseNode::NO_PAGE) {
@@ -100,26 +115,76 @@ void Database::insertNonFull(DatabaseNode *node, const DatabaseNode::Record &key
 		m_pageReadWriter,
 		m_pageReadWriter.allocatePageNumber(),
 		false);
+	    node->linkedNodesRootPageNumbers()[i] = child->rootPage();
 	}
 
 	if (child->keyCount() == 2 * T - 1) {
+// 	    std::cerr << "splitting\n";
 	    splitChild(node, i, child);
-	    if (!(key < node->keys()[i])) {
+// 	    assert(i < node->keyCount());
+	    if (key > node->keys()[i]) {
+// 		std::cerr << "qweqw\n";
 		i++;
 	    }
+	}
+	child->writeToPages(&m_globConfiguration, m_pageReadWriter);
+	delete child;
+
+	if (node->linkedNodesRootPageNumbers()[i] != DatabaseNode::NO_PAGE) {
+	    child = new DatabaseNode(
+		&m_globConfiguration,
+		m_pageReadWriter,
+		node->linkedNodesRootPageNumbers()[i],
+				     true
+	    );
+	} else {
+	    child = new DatabaseNode(
+		&m_globConfiguration,
+		m_pageReadWriter,
+		m_pageReadWriter.allocatePageNumber(),
+				     false);
+	    node->linkedNodesRootPageNumbers()[i] = child->rootPage();
 	}
 
 	insertNonFull(child, key, value);
 
+// 	if (!selectFromNode(child, key, trash)) {
+// 	    std::cerr << "GFUCK 2\n";
+// 	}
+// 	size_t page = child->rootPage();
+
 	child->writeToPages(&m_globConfiguration, m_pageReadWriter);
 	delete child;
+
+// 	child = new DatabaseNode(
+// 	    &m_globConfiguration,
+// 	    m_pageReadWriter,
+// 	    page,
+// 	    true);
+//
+// // 	if (!selectFromNode(node, key, trash)) {
+// 	    std::cerr << "GFUCK 3\n";
+// 	    for (int i = 0; i <= node->keyCount(); i++) {
+// // 		std::cerr << node->linkedNodesRootPageNumbers()[i] << ' ';
+// 		if (i < node->keyCount()) {
+// 		    std::cerr << "[" << node->keys()[i].size << ", " << node->keys()[i].data << "] ";
+// 		}
+// 	    }
+// 	    std::cerr << "\nexpect " << page << std::endl;
+// 	    std::cerr << "key [" << key.size << ", " << key.data << "] " << std::endl;
+// 	}
+//
+// 	if (!selectFromNode(child, key, trash)) {
+// 	    std::cerr << "GFUCK 5\n";
+// 	}
     }
 }
 
 void Database::splitChild(DatabaseNode *x, size_t i, DatabaseNode *y)
 {
-    assert(y->keyCount() == 2 * T - 1);
-    assert(x->keyCount() != 2 * T - 1);
+//     assert(y->keyCount() == 2 * T - 1);
+//     assert(x->keyCount() != 2 * T - 1);
+//     assert(!x->isLeaf());
 
     DatabaseNode *z = new DatabaseNode(
 	&m_globConfiguration,
@@ -155,9 +220,9 @@ void Database::splitChild(DatabaseNode *x, size_t i, DatabaseNode *y)
     y->data().erase(y->data().begin() + T - 1);
     y->setKeyCount(T - 1);
 
+    x->writeToPages(&m_globConfiguration, m_pageReadWriter);
     y->writeToPages(&m_globConfiguration, m_pageReadWriter);
     z->writeToPages(&m_globConfiguration, m_pageReadWriter);
-    x->writeToPages(&m_globConfiguration, m_pageReadWriter);
 }
 
 bool Database::select(const DatabaseNode::Record &key, DatabaseNode::Record &toWrite)
@@ -178,22 +243,24 @@ void Database::sync()
 
 bool Database::selectFromNode(DatabaseNode *node, const DatabaseNode::Record &key, DatabaseNode::Record &toWrite)
 {
-    std::cerr << "selectFromNode " << static_cast<void *>(node) << ' ' << node->keyCount() << std::endl;
-    std::cerr << node->linkedNodesRootPageNumbers().size() << std::endl;
-    if (!node->isLeaf()) {
-	for (size_t i = 0; i <= node->keyCount(); i++) {
-	    std::cerr << node->linkedNodesRootPageNumbers()[i] << ' ';
-	}
-	std::cerr << std::endl;
-    }
+//     std::cerr << "selectFromNode " << static_cast<void *>(node) << ' ' << node->keyCount() << std::endl;
+//     std::cerr << node->linkedNodesRootPageNumbers().size() << std::endl;
+//     if (!node->isLeaf()) {
+// 	for (size_t i = 0; i <= node->keyCount(); i++) {
+// 	    std::cerr << node->linkedNodesRootPageNumbers()[i] << ' ';
+// 	}
+// 	std::cerr << std::endl;
+//     }
 
     size_t i = 0;
     while (i < node->keyCount() && key > node->keys()[i]) { // Seek first >= key
 	i++;
     }
 
+//     std::cerr << "current i " << i << std::endl;
+
     if (i < node->keyCount() && key == node->keys()[i]) {
-	std::cerr << "found\n";
+// 	std::cerr << "found\n";
 	toWrite.size = node->data()[i].size;
 	toWrite.data = new char[toWrite.size];
 	memcpy(toWrite.data, node->data()[i].data, toWrite.size);
@@ -201,16 +268,16 @@ bool Database::selectFromNode(DatabaseNode *node, const DatabaseNode::Record &ke
     }
 
     if (node->isLeaf()) {
-	std::cerr << "Not found leaf\n";
+// 	std::cerr << "Not found leaf\n";
 	return false;
     } else {
-	std::cerr << "going down\n";
+// 	std::cerr << "going down\n";
 	size_t pageToGo = node->linkedNodesRootPageNumbers()[i];
 	if (pageToGo == DatabaseNode::NO_PAGE) { // no such son
-	    std::cerr << "Not found nowhere to go\n";
+// 	    std::cerr << "Not found nowhere to go\n";
 	    return false;
 	}
-	std::cerr << "reading next node\n";
+// 	std::cerr << "reading next node\n";
 	std::unique_ptr<DatabaseNode> nextNode(
 	    new DatabaseNode(
 		&m_globConfiguration,
@@ -219,7 +286,7 @@ bool Database::selectFromNode(DatabaseNode *node, const DatabaseNode::Record &ke
 		true
 	    )
 	);
-	std::cerr << "stepping in\n";
+// 	std::cerr << "stepping in\n";
 	return selectFromNode(nextNode.get(), key, toWrite);
     }
 }
