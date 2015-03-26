@@ -3,7 +3,7 @@
 #include <cstring>
 #include <memory>
 
-const int Database::T = 10;
+const int Database::T = 6;
 
 Database::Database(const char *databaseFile, const Database::Configuration &configuration)
     : m_globConfiguration(
@@ -68,6 +68,7 @@ void Database::insertNonFull(DatabaseNode *node, const DatabaseNode::Record &key
 	}
 	i--;
     }
+
     if (i < node->keyCount() && node->keys()[i] == key) {
 	delete[] node->data()[i].data;
 	node->data()[i].size = value.size;
