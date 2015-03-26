@@ -47,4 +47,30 @@ private:
 	size_t i,
 	DatabaseNode *y
     );
+
+    void removeFromNode(
+	DatabaseNode *node,
+	const DatabaseNode::Record &key
+    );
+
+    DatabaseNode *loadFromDiskOrCreate(size_t &pageNum);
+
+    void findRightmostKey(
+	DatabaseNode *node,
+	DatabaseNode::Record &key,
+	DatabaseNode::Record &value
+    );
+
+    void findLeftmostKey(
+	DatabaseNode *node,
+	DatabaseNode::Record &key,
+	DatabaseNode::Record &value
+    );
+
+    void merge(
+	DatabaseNode *y,
+	DatabaseNode *x,
+	size_t i,
+	DatabaseNode *z
+    );
 };

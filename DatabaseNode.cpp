@@ -4,8 +4,6 @@
 #include <climits>
 #include <cstring>
 
-#include <iostream>
-
 const size_t DatabaseNode::NO_PAGE = -1;
 
 DatabaseNode::Record::Record(size_t _size, char *_data)
@@ -118,7 +116,6 @@ DatabaseNode::~DatabaseNode()
 
 void DatabaseNode::writeToPages(GlobalConfiguration *globConf, PageReadWriter &rw)
 {
-    std::cerr << "start write node to pages\n";
     size_t neededPlace = 0;
     neededPlace += sizeof(m_isLeaf);
     neededPlace += sizeof(m_keyCount);
@@ -157,8 +154,6 @@ void DatabaseNode::writeToPages(GlobalConfiguration *globConf, PageReadWriter &r
 	cur->write(&pageNumbersSize, sizeof(pageNumbersSize));
     }
 
-    std::cerr << "step 1 " << m_keyCount << ' ' << m_data.size() << "\n";
-
     for (size_t i = 0; i < m_pageNumbers.size(); i++) {
 	size_t pageNum = m_pageNumbers[i];
 	writeWithExtension(globConf, rw, curPageNumId, cur, &pageNum, sizeof(pageNum));
@@ -169,15 +164,10 @@ void DatabaseNode::writeToPages(GlobalConfiguration *globConf, PageReadWriter &r
 	writeWithExtension(globConf, rw, curPageNumId, cur, m_keys[i].data, m_keys[i].size);
     }
 
-    std::cerr << "step 5 " << m_keyCount << ' ' << m_data.size() << "\n";
-
     for (size_t i = 0; i < m_keyCount; i++) {
-// 	std::cerr << i << ' ' << static_cast<void *>(m_data[i].data) << ' ' << m_data[i].size << std::endl;
 	writeWithExtension(globConf, rw, curPageNumId, cur, &m_data[i].size, sizeof(m_data[i].size));
 	writeWithExtension(globConf, rw, curPageNumId, cur, m_data[i].data, m_data[i].size);
     }
-
-    std::cerr << "step 5\n";
 
     if (!m_isLeaf) {
 	for (size_t i = 0; i <= m_keyCount; i++) {
@@ -186,11 +176,7 @@ void DatabaseNode::writeToPages(GlobalConfiguration *globConf, PageReadWriter &r
 	}
     }
     rw.write(*cur);
-
-    std::cerr << "step 6\n";
-
     delete cur;
-    std::cerr << "finished write node to pages\n";
 }
 
 void DatabaseNode::readWithExtension(
@@ -230,40 +216,23 @@ void DatabaseNode::writeWithExtension(
     size_t size
 )
 {
-//     std::cerr << "Writing with extension " << static_cast<void *>(cur) << "\n";
     char *res = reinterpret_cast<char *>(_res);
     size_t writtenSize = 0;
     while (writtenSize < size) {
-// 	std::cerr << "Another iter\n";
 	if (cur->freeSpace() == 0) {
-// 	    std::cerr << "No space\n";
 	    curPageNumId++;
 	    if (curPageNumId >= m_pageNumbers.size()) {
 		throw std::string("Reached end of allocated pages");
 	    }
 	    Page *q = new Page(m_pageNumbers[curPageNumId], globConf->pageSize());
-// 	    std::cerr << "cisdfsdf " << static_cast<void *>(cur) << ' '
-// 	    << static_cast<void*>(q) << "\n";
-
-// 	    std::cerr << static_cast<void *>(cur) << ' ' << static_cast<void*>(q->rawData()) << "\n";
 	    rw.write(*cur);
-// 	    std::cerr << "after " <<  static_cast<void*>(q->rawData()) << ' ' << q << "\n";
 	    delete cur;
-// 	    std::cerr << "after " <<  static_cast<void*>(q->rawData()) << ' ' << q << "\n";
 	    cur = q;
 	}
-// 	std::cerr << "writing further\n";
 	size_t toWrite = std::min(size - writtenSize, cur->freeSpace());
-// 	std::cerr << "to read " << toWrite << ' ' << size << ' ' << writtenSize << ' ' << static_cast<void*>(cur) << "\n";
-// 	std::cerr << static_cast<void*>(cur->rawData()) << "\n";
-// 	std::cerr << static_cast<void*>(res) << "\n";
 	cur->write(res + writtenSize, toWrite);
-// 	std::cerr << "sdf\n";
 	writtenSize += toWrite;
-// 	std::cerr << "sdf\n";
     }
-
-//     std::cerr << "STOP Writing with extension\n";
 }
 
 bool DatabaseNode::isLeaf() const
@@ -304,4 +273,12 @@ std::vector<size_t> &DatabaseNode::linkedNodesRootPageNumbers()
 size_t DatabaseNode::rootPage() const
 {
     return m_pageNumbers[0];
+}
+
+void DatabaseNode::freePages(PageReadWriter &rw)
+{
+    for (size_t i = 0; i < m_pageNumbers.size(); i++) {
+	rw.deallocatePageNumber(m_pageNumbers[i]);
+    }
+    m_pageNumbers.clear();
 }

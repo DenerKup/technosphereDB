@@ -46,6 +46,8 @@ public:
 
     size_t rootPage() const;
 
+    void freePages(PageReadWriter &rw);
+
 private:
     bool m_isLeaf;
     size_t m_keyCount;

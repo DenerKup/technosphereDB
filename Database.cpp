@@ -3,9 +3,6 @@
 #include <cstring>
 #include <memory>
 
-// #include <iostream>
-// #include <cassert>
-
 const int Database::T = 10;
 
 Database::Database(const char *databaseFile, const Database::Configuration &configuration)
@@ -36,9 +33,7 @@ void Database::close()
 
 void Database::insert(const DatabaseNode::Record &key, const DatabaseNode::Record &value)
 {
-//     std::cerr << "Insert begin\n";
     if (m_rootNode->keyCount() == 2 * T - 1) {
-// 	std::cerr << "Inserting full\n";
 	DatabaseNode *s = new DatabaseNode(
 	    &m_globConfiguration,
 	    m_pageReadWriter,
@@ -59,20 +54,12 @@ void Database::insert(const DatabaseNode::Record &key, const DatabaseNode::Recor
 
 	m_rootNode = s;
     } else {
-// 	std::cerr << "Inserting not full\n";
 	insertNonFull(m_rootNode, key, value);
-    }
-
-    DatabaseNode::Record trash;
-    if (!select(key, trash)) {
-	exit(0);
     }
 }
 
 void Database::insertNonFull(DatabaseNode *node, const DatabaseNode::Record &key, const DatabaseNode::Record &value)
 {
-    DatabaseNode::Record trash;
-
     size_t i = node->keyCount() - 1;
     while (node->keyCount() && i >= 0 && key < node->keys()[i]) { // seeking last <= key
 	if (i == 0) {
@@ -94,12 +81,7 @@ void Database::insertNonFull(DatabaseNode *node, const DatabaseNode::Record &key
 	node->keys().insert(node->keys().begin() + i, DatabaseNode::Record::rawCopyFrom(key));
 	node->data().insert(node->data().begin() + i, DatabaseNode::Record::rawCopyFrom(value));
 	node->setKeyCount(node->keyCount() + 1);
-
-// 	if (!selectFromNode(node, key, trash)) {
-// 	    std::cerr << "GFUCK 1\n";
-// 	}
     } else {
-// 	std::cerr << "going deeper\n";
 	i++;
 	DatabaseNode *child = 0;
 	if (node->linkedNodesRootPageNumbers()[i] != DatabaseNode::NO_PAGE) {
@@ -119,14 +101,20 @@ void Database::insertNonFull(DatabaseNode *node, const DatabaseNode::Record &key
 	}
 
 	if (child->keyCount() == 2 * T - 1) {
-// 	    std::cerr << "splitting\n";
 	    splitChild(node, i, child);
-// 	    assert(i < node->keyCount());
 	    if (key > node->keys()[i]) {
-// 		std::cerr << "qweqw\n";
 		i++;
 	    }
 	}
+
+	if (i < node->keyCount() && node->keys()[i] == key) {
+	    delete[] node->data()[i].data;
+	    node->data()[i].size = value.size;
+	    node->data()[i].data = new char[value.size];
+	    memcpy(node->data()[i].data, value.data, value.size);
+	    return;
+	}
+
 	child->writeToPages(&m_globConfiguration, m_pageReadWriter);
 	delete child;
 
@@ -148,44 +136,13 @@ void Database::insertNonFull(DatabaseNode *node, const DatabaseNode::Record &key
 
 	insertNonFull(child, key, value);
 
-// 	if (!selectFromNode(child, key, trash)) {
-// 	    std::cerr << "GFUCK 2\n";
-// 	}
-// 	size_t page = child->rootPage();
-
 	child->writeToPages(&m_globConfiguration, m_pageReadWriter);
 	delete child;
-
-// 	child = new DatabaseNode(
-// 	    &m_globConfiguration,
-// 	    m_pageReadWriter,
-// 	    page,
-// 	    true);
-//
-// // 	if (!selectFromNode(node, key, trash)) {
-// 	    std::cerr << "GFUCK 3\n";
-// 	    for (int i = 0; i <= node->keyCount(); i++) {
-// // 		std::cerr << node->linkedNodesRootPageNumbers()[i] << ' ';
-// 		if (i < node->keyCount()) {
-// 		    std::cerr << "[" << node->keys()[i].size << ", " << node->keys()[i].data << "] ";
-// 		}
-// 	    }
-// 	    std::cerr << "\nexpect " << page << std::endl;
-// 	    std::cerr << "key [" << key.size << ", " << key.data << "] " << std::endl;
-// 	}
-//
-// 	if (!selectFromNode(child, key, trash)) {
-// 	    std::cerr << "GFUCK 5\n";
-// 	}
     }
 }
 
 void Database::splitChild(DatabaseNode *x, size_t i, DatabaseNode *y)
 {
-//     assert(y->keyCount() == 2 * T - 1);
-//     assert(x->keyCount() != 2 * T - 1);
-//     assert(!x->isLeaf());
-
     DatabaseNode *z = new DatabaseNode(
 	&m_globConfiguration,
 	m_pageReadWriter,
@@ -230,10 +187,13 @@ bool Database::select(const DatabaseNode::Record &key, DatabaseNode::Record &toW
     return selectFromNode(m_rootNode, key, toWrite);
 }
 
-// TODO
 void Database::remove(const DatabaseNode::Record &key)
 {
-
+    DatabaseNode::Record trash;
+    if (!select(key, trash)) {
+	return;
+    }
+    removeFromNode(m_rootNode, key);
 }
 
 // To be implemented
@@ -241,43 +201,27 @@ void Database::sync()
 {
 }
 
+bool spec = false;
+
 bool Database::selectFromNode(DatabaseNode *node, const DatabaseNode::Record &key, DatabaseNode::Record &toWrite)
 {
-//     std::cerr << "selectFromNode " << static_cast<void *>(node) << ' ' << node->keyCount() << std::endl;
-//     std::cerr << node->linkedNodesRootPageNumbers().size() << std::endl;
-//     if (!node->isLeaf()) {
-// 	for (size_t i = 0; i <= node->keyCount(); i++) {
-// 	    std::cerr << node->linkedNodesRootPageNumbers()[i] << ' ';
-// 	}
-// 	std::cerr << std::endl;
-//     }
-
     size_t i = 0;
     while (i < node->keyCount() && key > node->keys()[i]) { // Seek first >= key
 	i++;
     }
-
-//     std::cerr << "current i " << i << std::endl;
-
     if (i < node->keyCount() && key == node->keys()[i]) {
-// 	std::cerr << "found\n";
 	toWrite.size = node->data()[i].size;
 	toWrite.data = new char[toWrite.size];
 	memcpy(toWrite.data, node->data()[i].data, toWrite.size);
 	return true;
     }
-
     if (node->isLeaf()) {
-// 	std::cerr << "Not found leaf\n";
 	return false;
     } else {
-// 	std::cerr << "going down\n";
 	size_t pageToGo = node->linkedNodesRootPageNumbers()[i];
 	if (pageToGo == DatabaseNode::NO_PAGE) { // no such son
-// 	    std::cerr << "Not found nowhere to go\n";
 	    return false;
 	}
-// 	std::cerr << "reading next node\n";
 	std::unique_ptr<DatabaseNode> nextNode(
 	    new DatabaseNode(
 		&m_globConfiguration,
@@ -286,7 +230,223 @@ bool Database::selectFromNode(DatabaseNode *node, const DatabaseNode::Record &ke
 		true
 	    )
 	);
-// 	std::cerr << "stepping in\n";
 	return selectFromNode(nextNode.get(), key, toWrite);
     }
+}
+
+void Database::removeFromNode(DatabaseNode *x, const DatabaseNode::Record &key)
+{
+    size_t i = 0;
+    while (i < x->keyCount() && key > x->keys()[i]) { // Seek first >= key
+	i++;
+    }
+    if (x->isLeaf()) { // Case 1
+	if (i < x->keyCount() && key == x->keys()[i]) {
+	    delete[] x->keys()[i].data;
+	    delete[] x->data()[i].data;
+	    x->keys().erase(x->keys().begin() + i);
+	    x->data().erase(x->data().begin() + i);
+	    x->setKeyCount(x->keyCount() - 1);
+	} else {
+	    throw std::string("No such key to remove.");
+	}
+    } else if (i < x->keyCount() && key == x->keys()[i]) { // Case 2
+	DatabaseNode *y = loadFromDiskOrCreate(x->linkedNodesRootPageNumbers()[i]);
+	DatabaseNode *z = loadFromDiskOrCreate(x->linkedNodesRootPageNumbers()[i + 1]);
+	std::vector<size_t> &xLinks = x->linkedNodesRootPageNumbers();
+
+	if (y->keyCount() > T - 1) { // Case 2 a
+	    DatabaseNode::Record replacingKey, replacingData;
+	    findRightmostKey(y, replacingKey, replacingData);
+	    removeFromNode(y, replacingKey);
+
+	    delete[] x->keys()[i].data;
+	    delete[] x->data()[i].data;
+	    x->keys()[i] = replacingKey;
+	    x->data()[i] = replacingData;
+
+	    y->writeToPages(&m_globConfiguration, m_pageReadWriter);
+	    z->writeToPages(&m_globConfiguration, m_pageReadWriter);
+	    delete y;
+	    delete z;
+	} else if (z->keyCount() > T - 1) { // Case 2 b
+	    DatabaseNode::Record replacingKey, replacingData;
+	    findLeftmostKey(z, replacingKey, replacingData);
+	    removeFromNode(z, replacingKey);
+
+	    delete[] x->keys()[i].data;
+	    delete[] x->data()[i].data;
+
+	    x->keys()[i] = replacingKey;
+	    x->data()[i] = replacingData;
+
+	    y->writeToPages(&m_globConfiguration, m_pageReadWriter);
+	    z->writeToPages(&m_globConfiguration, m_pageReadWriter);
+	    delete y;
+	    delete z;
+	} else { // Case 2 c
+	    merge(y, x, i, z);
+	    removeFromNode(y, key);
+	    y->writeToPages(&m_globConfiguration, m_pageReadWriter);
+	    delete y;
+	    delete z;
+	}
+    } else { // Case 3
+	bool writeY = true;
+	DatabaseNode *y = loadFromDiskOrCreate(x->linkedNodesRootPageNumbers()[i]);
+	if (y->keyCount() > T - 1) {
+	    removeFromNode(y, key);
+	    y->writeToPages(&m_globConfiguration, m_pageReadWriter);
+	    delete y;
+	    return;
+	}
+
+	DatabaseNode *yLeft = 0;
+	if (i >= 1) {
+	    yLeft = loadFromDiskOrCreate(x->linkedNodesRootPageNumbers()[i - 1]);
+	}
+
+	bool writeRight = true;
+	DatabaseNode *yRight = 0;
+	if (i + 1 <= x->keyCount()) {
+	    yRight = loadFromDiskOrCreate(x->linkedNodesRootPageNumbers()[i + 1]);
+	}
+
+	if (yLeft && yLeft->keyCount() > T - 1) {
+	    y->keys().insert(y->keys().begin(), x->keys()[i - 1]);
+	    y->data().insert(y->data().begin(), x->data()[i - 1]);
+	    y->setKeyCount(y->keyCount() + 1);
+
+	    x->keys()[i - 1] = yLeft->keys().back();
+	    x->data()[i - 1] = yLeft->data().back();
+
+	    yLeft->keys().pop_back();
+	    yLeft->data().pop_back();
+	    if (!yLeft->isLeaf()) {
+		y->linkedNodesRootPageNumbers().insert(
+		    y->linkedNodesRootPageNumbers().begin(),
+		    yLeft->linkedNodesRootPageNumbers().back());
+
+		yLeft->linkedNodesRootPageNumbers().pop_back();
+	    }
+	    yLeft->setKeyCount(yLeft->keyCount() - 1);
+
+	    removeFromNode(y, key);
+	} else if (yRight && yRight->keyCount() > T - 1) {
+
+	    y->keys().push_back(x->keys()[i]);
+	    y->data().push_back(x->data()[i]);
+	    y->setKeyCount(y->keyCount() + 1);
+
+	    x->keys()[i] = yRight->keys()[0];
+	    x->data()[i] = yRight->data()[0];
+
+	    yRight->keys().erase(yRight->keys().begin());
+	    yRight->data().erase(yRight->data().begin());
+	    if (!yRight->isLeaf()) {
+		y->linkedNodesRootPageNumbers().push_back(yRight->linkedNodesRootPageNumbers()[0]);
+		yRight->linkedNodesRootPageNumbers().erase(yRight->linkedNodesRootPageNumbers().begin());
+	    }
+	    yRight->setKeyCount(yRight->keyCount() - 1);
+
+	    removeFromNode(y, key);
+	} else if (yLeft) {
+	    merge(yLeft, x, i - 1, y);
+	    writeY = false;
+	    removeFromNode(yLeft, key);
+	} else if (yRight) {
+	    merge(y, x, i, yRight);
+	    writeRight = false;
+	    removeFromNode(y, key);
+	}
+
+	if (writeY) {
+	    y->writeToPages(&m_globConfiguration, m_pageReadWriter);
+	}
+	delete y;
+
+	if (yLeft) {
+	    yLeft->writeToPages(&m_globConfiguration, m_pageReadWriter);
+	    delete yLeft;
+	}
+
+	if (yRight) {
+	    if (writeRight) {
+		yRight->writeToPages(&m_globConfiguration, m_pageReadWriter);
+	    }
+	    delete yRight;
+	}
+    }
+}
+
+DatabaseNode *Database::loadFromDiskOrCreate(size_t &pageNum)
+{
+    if (pageNum == DatabaseNode::NO_PAGE) {
+	pageNum = m_pageReadWriter.allocatePageNumber();
+	return new DatabaseNode(
+	    &m_globConfiguration,
+	    m_pageReadWriter,
+	    pageNum,
+	    false);
+    } else {
+	return new DatabaseNode(
+	    &m_globConfiguration,
+	    m_pageReadWriter,
+	    pageNum,
+	    true);
+    }
+}
+
+void Database::findLeftmostKey(DatabaseNode *node, DatabaseNode::Record &key, DatabaseNode::Record &value)
+{
+    if (node->isLeaf()) {
+	key = DatabaseNode::Record::rawCopyFrom(node->keys()[0]);
+	value =  DatabaseNode::Record::rawCopyFrom(node->data()[0]);
+    } else {
+	DatabaseNode *toGo = loadFromDiskOrCreate(node->linkedNodesRootPageNumbers()[0]);
+	findLeftmostKey(toGo, key, value);
+	delete toGo;
+    }
+}
+
+void Database::findRightmostKey(DatabaseNode *node, DatabaseNode::Record &key, DatabaseNode::Record &value)
+{
+    if (node->isLeaf()) {
+	key = DatabaseNode::Record::rawCopyFrom(node->keys().back());
+	value = DatabaseNode::Record::rawCopyFrom(node->data().back());
+    } else {
+	DatabaseNode *toGo = loadFromDiskOrCreate(node->linkedNodesRootPageNumbers().back());
+	findRightmostKey(toGo, key, value);
+	delete toGo;
+    }
+}
+
+void Database::merge(DatabaseNode *y, DatabaseNode *x, size_t i, DatabaseNode *z)
+{
+    y->keys().push_back(x->keys()[i]);
+    y->data().push_back(x->data()[i]);
+    x->keys().erase(x->keys().begin() + i);
+    x->data().erase(x->data().begin() + i);
+
+    y->keys().insert(y->keys().end(), z->keys().begin(), z->keys().end());
+    z->keys().clear();
+    y->data().insert(y->data().end(), z->data().begin(), z->data().end());
+    z->data().clear();
+
+    if (!y->isLeaf()) {
+	std::vector<size_t> &yLinks = y->linkedNodesRootPageNumbers();
+	std::vector<size_t> &zLinks = z->linkedNodesRootPageNumbers();
+
+	yLinks.insert(yLinks.end(), zLinks.begin(), zLinks.end());
+	zLinks.clear();
+    }
+
+    std::vector<size_t> &xLinks = x->linkedNodesRootPageNumbers();
+    xLinks[i + 1] = y->rootPage();
+    xLinks.erase(xLinks.begin() + i);
+
+    x->setKeyCount(x->keyCount() - 1);
+    y->setKeyCount(y->keyCount() + 1 + z->keyCount());
+    z->setKeyCount(0);
+    z->freePages(m_pageReadWriter);
 }

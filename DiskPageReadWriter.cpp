@@ -7,9 +7,6 @@
 #include <string>
 #include <cstring>
 
-#include <errno.h>
-#include <iostream>
-
 DiskPageReadWriter::DiskPageReadWriter(const char* file, GlobalConfiguration *_globConf)
     : m_fd(-1)
     , m_globConf(_globConf)
@@ -85,34 +82,27 @@ void DiskPageReadWriter::deallocatePageNumber(const size_t &number)
 void DiskPageReadWriter::read(Page &p)
 {
     if (p.number() >= m_globConf->pageCount()) {
-	throw std::string("Invalid page number\n");
+	throw std::string("Invalid page number read\n");
     }
-
-    std::cerr << "Reading page number " << p.number() << ' ' << m_fd << std::endl;
-
     if (lseek(m_fd, p.number() * m_globConf->pageSize(), SEEK_SET) == -1) {
 	throw std::string("Error seeking page");
     }
     if (::read(m_fd, p.rawData(), m_globConf->pageSize()) != m_globConf->pageSize()) {
-	std::cerr << strerror(errno) << std::endl;
 	throw std::string("Error reading page");
     }
-    std::cerr << "Reading page end\n";
 }
 
 void DiskPageReadWriter::write(const Page &p)
 {
     if (p.number() >= m_globConf->pageCount()) {
-	throw std::string("Invalid page number\n");
+	throw std::string("Invalid page number write\n");
     }
-//     std::cerr << "writting page " << p.number() << std::endl;
     if (lseek(m_fd, p.number() * m_globConf->pageSize(), SEEK_SET) == -1) {
 	throw std::string("Error seeking page");
     }
     if (::write(m_fd, p.rawData(), m_globConf->pageSize()) != m_globConf->pageSize()) {
 	throw std::string("Error writing page");
     }
-//     std::cerr << "s page " << p.number() << std::endl;
 }
 
 void DiskPageReadWriter::flush()

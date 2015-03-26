@@ -2,7 +2,6 @@
 
 #include <cstring>
 #include <string>
-#include <iostream>
 
 Page::Page(const size_t &number, const size_t &pageSize)
     : m_data(0)
@@ -46,17 +45,12 @@ void Page::read(void *_readData, const size_t &size)
 
 void Page::write(const void *_writeData, const size_t &size)
 {
-//     std::cerr << "START " << size << std::endl;;
     const char *writeData = reinterpret_cast<const char *>(_writeData);
-//     std::cerr << "| " <<  static_cast<const void *>(writeData) << std::endl;
     if (m_cursorPos + size > m_pageSize || size == 0) {
 	throw std::string("Invalid write to page");
     }
-//     std::cerr << "| " << static_cast<void *>(m_data) << ' ' << m_cursorPos << ' ' << static_cast<const void *>(writeData) << std::endl;
     memcpy(m_data + m_cursorPos, writeData, size);
-//     std::cerr << "|\n";
     m_cursorPos += size;
-//     std::cerr << "END\n";
 }
 
 size_t Page::freeSpace() const
