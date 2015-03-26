@@ -3,7 +3,7 @@
 #include <cstring>
 #include <memory>
 
-const int Database::T = 6;
+const int Database::T = 5;
 
 Database::Database(const char *databaseFile, const Database::Configuration &configuration)
     : m_globConfiguration(
