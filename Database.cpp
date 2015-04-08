@@ -146,8 +146,6 @@ void Database::sync()
 {
 }
 
-bool spec = false;
-
 bool Database::selectFromNode(DatabaseNode *x, const DatabaseNode::Record &key, DatabaseNode::Record &toWrite)
 {
     size_t i = std::lower_bound(x->keys().begin(), x->keys().end(), key) - x->keys().begin(); // first >= key
