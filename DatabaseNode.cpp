@@ -4,8 +4,6 @@
 #include <climits>
 #include <cstring>
 
-const size_t DatabaseNode::NO_PAGE = -1;
-
 DatabaseNode::Record::Record(size_t _size, char *_data)
     : size(_size)
     , data(_data)

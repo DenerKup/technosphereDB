@@ -53,7 +53,8 @@ private:
 	const DatabaseNode::Record &key
     );
 
-    DatabaseNode *loadFromDiskOrCreate(size_t &pageNum);
+    DatabaseNode *loadNode(size_t pageNum);
+    DatabaseNode *createNode();
 
     void findRightmostKey(
 	DatabaseNode *node,

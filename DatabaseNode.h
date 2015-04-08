@@ -9,8 +9,6 @@
 class DatabaseNode
 {
 public:
-    static const size_t NO_PAGE;
-
     struct Record
     {
 	Record(size_t size = 0, char *data = nullptr);
