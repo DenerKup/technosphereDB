@@ -56,49 +56,46 @@ DatabaseNode::Record DatabaseNode::Record::rawCopyFrom(const DatabaseNode::Recor
 DatabaseNode::DatabaseNode(GlobalConfiguration *globConf, PageReadWriter &rw, size_t rootPageNumber, bool needRead)
 {
     if (needRead) {
-	Page *cur = new Page(rootPageNumber, globConf->pageSize());
-	rw.read(*cur);
+	m_rootPageNumber = rootPageNumber;
 
-	cur->seek(0);
-	size_t curPageNumId = 0;
-	cur->read(&m_isLeaf, sizeof(m_isLeaf));
-	cur->read(&m_keyCount, sizeof(m_keyCount));
+	Page *p = new Page(rootPageNumber, globConf->pageSize());
+	rw.read(*p);
 
-	size_t pageNumbersSize;
-	cur->read(&pageNumbersSize, sizeof(pageNumbersSize));
-	for (size_t i = 0; i < pageNumbersSize; i++) {
-	    size_t pageNum;
-	    readWithExtension(globConf, rw, curPageNumId, cur, &pageNum, sizeof(pageNum));
-	    m_pageNumbers.push_back(pageNum);
-	}
+	p->seek(0);
+	p->read(&m_isLeaf, sizeof(m_isLeaf));
+	p->read(&m_keyCount, sizeof(m_keyCount));
 
 	for (size_t i = 0; i < m_keyCount; i++) {
 	    size_t keySize;
-	    readWithExtension(globConf, rw, curPageNumId, cur, &keySize, sizeof(keySize));
+	    p->read(&keySize, sizeof(keySize));
+
 	    char *keyValue = new char[keySize];
-	    readWithExtension(globConf, rw, curPageNumId, cur, keyValue, keySize);
+	    p->read(keyValue, keySize);
+
 	    m_keys.push_back(Record(keySize, keyValue));
 	}
 
 	for (size_t i = 0; i < m_keyCount; i++) {
 	    size_t dataSize;
-	    readWithExtension(globConf, rw, curPageNumId, cur, &dataSize, sizeof(dataSize));
+	    p->read(&dataSize, sizeof(dataSize));
+
 	    char *dataValue = new char[dataSize];
-	    readWithExtension(globConf, rw, curPageNumId, cur, dataValue, dataSize);
+	    p->read(dataValue, dataSize);
+
 	    m_data.push_back(Record(dataSize, dataValue));
 	}
 
 	if (!m_isLeaf) {
 	    for (size_t i = 0; i <= m_keyCount; i++) {
 		size_t linkedNodePageNumber;
-		readWithExtension(globConf, rw, curPageNumId, cur, &linkedNodePageNumber, sizeof(linkedNodePageNumber));
+		p->read(&linkedNodePageNumber, sizeof(linkedNodePageNumber));
 		m_linkedNodesRootPageNumbers.push_back(linkedNodePageNumber);
 	    }
 	}
 
-	delete cur;
+	delete p;
     } else {
-	m_pageNumbers.push_back(rootPageNumber);
+	m_rootPageNumber = rootPageNumber;
 	m_isLeaf = true;
 	m_keyCount = 0;
     }
@@ -112,125 +109,76 @@ DatabaseNode::~DatabaseNode()
     }
 }
 
-void DatabaseNode::writeToPages(GlobalConfiguration *globConf, PageReadWriter &rw)
+size_t DatabaseNode::spaceOnDisk() const
 {
-    size_t neededPlace = 0;
-    neededPlace += sizeof(m_isLeaf);
-    neededPlace += sizeof(m_keyCount);
-    neededPlace += sizeof(size_t); // pageNumbersSize
+    size_t curSpace = sizeof(m_isLeaf) + sizeof(m_keyCount);
     for (size_t i = 0; i < m_keyCount; i++) {
-	neededPlace += sizeof(size_t); // key size of size
-	neededPlace += m_keys[i].size; // key data size
-	neededPlace += sizeof(size_t); // data size of size
-	neededPlace += m_data[i].size; // data data size
+	curSpace += m_keys[i].size + sizeof(m_keys[i].size);
+	curSpace += m_data[i].size + sizeof(m_data[i].size);
     }
     if (!m_isLeaf) {
-	neededPlace += sizeof(size_t) * (m_keyCount + 1); // links;
+	curSpace += (m_keyCount + 1) * sizeof(decltype(m_linkedNodesRootPageNumbers.back()));
+    }
+    return curSpace;
+}
+
+size_t DatabaseNode::additionalSpaceFor(const DatabaseNode::Record &key, const DatabaseNode::Record &data) const
+{
+    size_t result = sizeof(key.size) + key.size;
+    result += sizeof(data.size) + data.size;
+    if (!m_isLeaf) {
+	result += sizeof(decltype(m_linkedNodesRootPageNumbers.back()));
+    }
+    return result;
+}
+
+size_t DatabaseNode::findFirstExceeding(size_t limitSize) const
+{
+    size_t curSpace = sizeof(m_isLeaf) + sizeof(m_keyCount);
+    size_t i = 0;
+    curSpace += sizeof(m_keys[0].size) + m_keys[0].size;
+    curSpace += sizeof(m_data[0].size) + m_data[0].size;
+    if (!m_isLeaf) {
+	curSpace += 2 * sizeof(decltype(m_linkedNodesRootPageNumbers.back()));
     }
 
-    size_t needPageNumbersSize = neededPlace / globConf->pageSize();
-    while (needPageNumbersSize * globConf->pageSize() <
-	neededPlace + needPageNumbersSize * sizeof(size_t) + sizeof(size_t)) {
-	needPageNumbersSize++;
+    while (curSpace <= limitSize && i < m_keyCount) {
+	i++;
+	curSpace += sizeof(m_keys[i].size) + m_keys[i].size;
+	curSpace += sizeof(m_data[i].size) + m_data[i].size;
+	if (!m_isLeaf) {
+	    curSpace += sizeof(decltype(m_linkedNodesRootPageNumbers.back()));
+	}
     }
 
-    while (needPageNumbersSize > m_pageNumbers.size()) {
-	m_pageNumbers.push_back(rw.allocatePageNumber());
-    }
-    while (needPageNumbersSize < m_pageNumbers.size()) {
-	rw.deallocatePageNumber(m_pageNumbers.back());
-	m_pageNumbers.pop_back();
-    }
+    return i;
+}
 
-    size_t curPageNumId = 0;
-    Page *cur = new Page(m_pageNumbers[0], globConf->pageSize());
+void DatabaseNode::writeToPages(GlobalConfiguration *globConf, PageReadWriter &rw)
+{
+    Page *p = new Page(m_rootPageNumber, globConf->pageSize());
 
-    cur->write(&m_isLeaf, sizeof(m_isLeaf));
-    cur->write(&m_keyCount, sizeof(m_keyCount));
-    {
-	size_t pageNumbersSize = m_pageNumbers.size();
-	cur->write(&pageNumbersSize, sizeof(pageNumbersSize));
-    }
+    p->write(&m_isLeaf, sizeof(m_isLeaf));
+    p->write(&m_keyCount, sizeof(m_keyCount));
 
-    for (size_t i = 0; i < m_pageNumbers.size(); i++) {
-	size_t pageNum = m_pageNumbers[i];
-	writeWithExtension(globConf, rw, curPageNumId, cur, &pageNum, sizeof(pageNum));
+    for (size_t i = 0; i < m_keyCount; i++) {
+	p->write(&m_keys[i].size, sizeof(m_keys[i].size));
+	p->write(m_keys[i].data, m_keys[i].size);
     }
 
     for (size_t i = 0; i < m_keyCount; i++) {
-	writeWithExtension(globConf, rw, curPageNumId, cur, &m_keys[i].size, sizeof(m_keys[i].size));
-	writeWithExtension(globConf, rw, curPageNumId, cur, m_keys[i].data, m_keys[i].size);
-    }
-
-    for (size_t i = 0; i < m_keyCount; i++) {
-	writeWithExtension(globConf, rw, curPageNumId, cur, &m_data[i].size, sizeof(m_data[i].size));
-	writeWithExtension(globConf, rw, curPageNumId, cur, m_data[i].data, m_data[i].size);
+	p->write(&m_data[i].size, sizeof(m_data[i].size));
+	p->write(m_data[i].data, m_data[i].size);
     }
 
     if (!m_isLeaf) {
 	for (size_t i = 0; i <= m_keyCount; i++) {
 	    size_t pageNum = m_linkedNodesRootPageNumbers[i];
-	    writeWithExtension(globConf, rw, curPageNumId, cur, &pageNum, sizeof(pageNum));
+	    p->write(&pageNum, sizeof(pageNum));
 	}
     }
-    rw.write(*cur);
-    delete cur;
-}
-
-void DatabaseNode::readWithExtension(
-    GlobalConfiguration *globConf,
-    PageReadWriter &rw,
-    size_t &curPageNumId,
-    Page *&cur,
-    void *_res,
-    size_t size
-)
-{
-    char *res = reinterpret_cast<char *>(_res);
-    size_t readedSize = 0;
-    while (readedSize < size) {
-	if (cur->freeSpace() == 0) {
-	    curPageNumId++;
-	    if (curPageNumId >= m_pageNumbers.size()) {
-		throw std::string("Reached end of allocated pages");
-	    }
-	    Page *next = new Page(m_pageNumbers[curPageNumId], globConf->pageSize());
-	    rw.read(*next);
-	    delete cur;
-	    cur = next;
-	}
-	size_t toRead = std::min(size - readedSize, cur->freeSpace());
-	cur->read(res + readedSize, toRead);
-	readedSize += toRead;
-    }
-}
-
-void DatabaseNode::writeWithExtension(
-    GlobalConfiguration *globConf,
-    PageReadWriter &rw,
-    size_t &curPageNumId,
-    Page *&cur,
-    void *_res,
-    size_t size
-)
-{
-    char *res = reinterpret_cast<char *>(_res);
-    size_t writtenSize = 0;
-    while (writtenSize < size) {
-	if (cur->freeSpace() == 0) {
-	    curPageNumId++;
-	    if (curPageNumId >= m_pageNumbers.size()) {
-		throw std::string("Reached end of allocated pages");
-	    }
-	    Page *q = new Page(m_pageNumbers[curPageNumId], globConf->pageSize());
-	    rw.write(*cur);
-	    delete cur;
-	    cur = q;
-	}
-	size_t toWrite = std::min(size - writtenSize, cur->freeSpace());
-	cur->write(res + writtenSize, toWrite);
-	writtenSize += toWrite;
-    }
+    rw.write(*p);
+    delete p;
 }
 
 bool DatabaseNode::isLeaf() const
@@ -270,13 +218,10 @@ std::vector<size_t> &DatabaseNode::linkedNodesRootPageNumbers()
 
 size_t DatabaseNode::rootPage() const
 {
-    return m_pageNumbers[0];
+    return m_rootPageNumber;
 }
 
 void DatabaseNode::freePages(PageReadWriter &rw)
 {
-    for (size_t i = 0; i < m_pageNumbers.size(); i++) {
-	rw.deallocatePageNumber(m_pageNumbers[i]);
-    }
-    m_pageNumbers.clear();
+    rw.deallocatePageNumber(m_rootPageNumber);
 }

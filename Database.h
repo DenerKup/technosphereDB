@@ -25,10 +25,11 @@ public:
     void sync();
 
 private:
-    static const int T;
     GlobalConfiguration m_globConfiguration;
     DiskPageReadWriter m_pageReadWriter;
     DatabaseNode *m_rootNode;
+
+    size_t effectivePageSize() const;
 
     bool selectFromNode(
 	DatabaseNode *node,

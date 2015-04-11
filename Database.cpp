@@ -4,8 +4,6 @@
 #include <memory>
 #include <algorithm>
 
-const int Database::T = 5;
-
 Database::Database(const char *databaseFile, const Database::Configuration &configuration)
     : m_globConfiguration(
 	configuration.size / configuration.pageSize,
@@ -27,6 +25,12 @@ Database::~Database()
     close();
 }
 
+size_t Database::effectivePageSize() const
+{
+    //assuming "key + data < pageSize / 4"
+    return m_globConfiguration.pageSize() * 3 / 4;
+}
+
 void Database::close()
 {
     m_pageReadWriter.close();
@@ -34,7 +38,7 @@ void Database::close()
 
 void Database::insert(const DatabaseNode::Record &key, const DatabaseNode::Record &value)
 {
-    if (m_rootNode->keyCount() == 2 * T - 1) {
+    if (m_rootNode->spaceOnDisk() + m_rootNode->additionalSpaceFor(key, value) > effectivePageSize()) {
 	DatabaseNode *s = createNode();
 
 	s->setIsLeaf(false);
@@ -70,7 +74,7 @@ void Database::insertNonFull(DatabaseNode *x, const DatabaseNode::Record &key, c
 	i++;
 
 	DatabaseNode *child = loadNode(x->linkedNodesRootPageNumbers()[i]);
-	if (child->keyCount() == 2 * T - 1) {
+	if (child->spaceOnDisk() + child->additionalSpaceFor(key, value) > effectivePageSize()) {
 	    splitChild(x, i, child);
 	    if (key > x->keys()[i]) {
 		i++;
@@ -96,8 +100,10 @@ void Database::splitChild(DatabaseNode *x, size_t i, DatabaseNode *y)
 {
     DatabaseNode *z = createNode();
 
+    size_t T = y->findFirstExceeding(effectivePageSize() / 2) + 1;
+
     z->setIsLeaf(y->isLeaf());
-    z->setKeyCount(T - 1);
+    z->setKeyCount(y->keyCount() - T);
 
     z->keys().insert(z->keys().begin(), y->keys().begin() + T, y->keys().end());
     y->keys().erase(y->keys().begin() + T, y->keys().end());
@@ -180,7 +186,7 @@ void Database::removeFromNode(DatabaseNode *x, const DatabaseNode::Record &key)
 	DatabaseNode *z = loadNode(x->linkedNodesRootPageNumbers()[i + 1]);
 	std::vector<size_t> &xLinks = x->linkedNodesRootPageNumbers();
 
-	if (y->keyCount() > T - 1) { // Case 2 a
+	if (y->spaceOnDisk() >= effectivePageSize() / 2) {
 	    DatabaseNode::Record replacingKey, replacingData;
 	    findRightmostKey(y, replacingKey, replacingData);
 	    removeFromNode(y, replacingKey);
@@ -191,14 +197,13 @@ void Database::removeFromNode(DatabaseNode *x, const DatabaseNode::Record &key)
 	    x->data()[i] = replacingData;
 
 	    y->writeToPages(&m_globConfiguration, m_pageReadWriter);
-	} else if (z->keyCount() > T - 1) { // Case 2 b
+	} else if (z->spaceOnDisk() >= effectivePageSize() / 2) {
 	    DatabaseNode::Record replacingKey, replacingData;
 	    findLeftmostKey(z, replacingKey, replacingData);
 	    removeFromNode(z, replacingKey);
 
 	    delete[] x->keys()[i].data;
 	    delete[] x->data()[i].data;
-
 	    x->keys()[i] = replacingKey;
 	    x->data()[i] = replacingData;
 
@@ -213,7 +218,7 @@ void Database::removeFromNode(DatabaseNode *x, const DatabaseNode::Record &key)
     } else { // Case 3
 	bool writeY = true;
 	DatabaseNode *y = loadNode(x->linkedNodesRootPageNumbers()[i]);
-	if (y->keyCount() > T - 1) {
+	if (y->spaceOnDisk() >= effectivePageSize() / 2) {
 	    removeFromNode(y, key);
 	    y->writeToPages(&m_globConfiguration, m_pageReadWriter);
 	    delete y;
@@ -231,7 +236,7 @@ void Database::removeFromNode(DatabaseNode *x, const DatabaseNode::Record &key)
 	    yRight = loadNode(x->linkedNodesRootPageNumbers()[i + 1]);
 	}
 
-	if (yLeft && yLeft->keyCount() > T - 1) {
+	if (yLeft && yLeft->spaceOnDisk() >= effectivePageSize() / 2) {
 	    y->keys().insert(y->keys().begin(), x->keys()[i - 1]);
 	    y->data().insert(y->data().begin(), x->data()[i - 1]);
 	    y->setKeyCount(y->keyCount() + 1);
@@ -251,8 +256,7 @@ void Database::removeFromNode(DatabaseNode *x, const DatabaseNode::Record &key)
 	    yLeft->setKeyCount(yLeft->keyCount() - 1);
 
 	    removeFromNode(y, key);
-	} else if (yRight && yRight->keyCount() > T - 1) {
-
+	} else if (yRight && yRight->spaceOnDisk() >= effectivePageSize() / 2) {
 	    y->keys().push_back(x->keys()[i]);
 	    y->data().push_back(x->data()[i]);
 	    y->setKeyCount(y->keyCount() + 1);

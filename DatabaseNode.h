@@ -46,31 +46,17 @@ public:
 
     void freePages(PageReadWriter &rw);
 
+    size_t spaceOnDisk() const;
+    size_t additionalSpaceFor(const Record &key, const Record &data) const;
+    size_t findFirstExceeding(size_t limitSize) const;
+
 private:
     bool m_isLeaf;
     size_t m_keyCount;
-    std::vector<size_t> m_pageNumbers;
+    size_t m_rootPageNumber;
     std::vector<Record> m_keys;
     std::vector<Record> m_data;
     std::vector<size_t> m_linkedNodesRootPageNumbers;
-
-    void readWithExtension(
-	GlobalConfiguration *globConf,
-	PageReadWriter &rw,
-	size_t &curPageNumberId,
-	Page *&cur,
-	void *res,
-	size_t size
-    );
-
-    void writeWithExtension(
-	GlobalConfiguration *globConf,
-	PageReadWriter &rw,
-	size_t &curPageNumberId,
-	Page *&cur,
-	void *res,
-	size_t size
-    );
 
     DatabaseNode();
     DatabaseNode(const DatabaseNode &) { }
