@@ -13,22 +13,26 @@ public:
     GlobalConfiguration(
 	const size_t &desiredPageCount,
 	const size_t &desiredPageSize,
-	const size_t &desiredRootNodeFirstPageNumber
+	const size_t &desiredRootNodeFirstPageNumber,
+	const size_t &desiredCacheSize
     );
     void initialize(
 	const size_t &pageCount,
 	const size_t &pageSize,
-	const size_t &rootNodeFirstPageNumber
+	const size_t &rootNodeFirstPageNumber,
+	const size_t &cacheSize
     );
 
     size_t desiredPageCount() const;
     size_t desiredPageSize() const;
     size_t desiredDatabaseSize() const;
     size_t desiredRootNodeFirstPageNumber() const;
+    size_t desiredCacheSize() const;
     size_t pageCount() const;
     size_t pageSize() const;
     size_t databaseSize() const;
     size_t rootNodeFirstPageNumber() const;
+    size_t cacheSize() const;
 
     bool isReadedFromFile() const;
 
@@ -41,6 +45,7 @@ private:
     size_t m_pageCount;
     size_t m_pageSize;
     size_t m_rootNodeFirstPageNumber;
+    size_t m_cacheSize;
     bool m_isReadedFromFile;
 
     GlobalConfiguration(GlobalConfiguration &) { };

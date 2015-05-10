@@ -4,12 +4,16 @@
 #include <memory>
 #include <algorithm>
 
+#include "DiskPageReadWriter.h"
+
 Database::Database(const char *databaseFile, const Database::Configuration &configuration)
     : m_globConfiguration(
 	configuration.size / configuration.pageSize,
 	configuration.pageSize,
-	1) //desired params
-    , m_pageReadWriter(databaseFile, &m_globConfiguration) // will init m_globConfiguration if file exists
+	1,
+	configuration.cacheSize) //desired params
+    // line below will init m_globConfiguration if file exists
+    , m_pageReadWriter(new DiskPageReadWriter(databaseFile, &m_globConfiguration), &m_globConfiguration)
     , m_rootNode(new DatabaseNode(
 	&m_globConfiguration,
 	m_pageReadWriter,

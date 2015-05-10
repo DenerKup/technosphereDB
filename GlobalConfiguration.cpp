@@ -10,11 +10,13 @@ const char GlobalConfiguration::MAGIC[GlobalConfiguration::MAGIC_SIZE] = "MYDB";
 GlobalConfiguration::GlobalConfiguration(
     const size_t &desiredPageCount,
     const size_t &desiredPageSize,
-    const size_t &desiredRootNodeFirstPageNumber)
+    const size_t &desiredRootNodeFirstPageNumber,
+    const size_t &desiredCacheSize)
     : m_isInitialized(false)
     , m_pageCount(desiredPageCount)
     , m_pageSize(desiredPageSize)
     , m_rootNodeFirstPageNumber(desiredRootNodeFirstPageNumber)
+    , m_cacheSize(desiredCacheSize)
     , m_isReadedFromFile(false)
 {
 }
@@ -22,7 +24,8 @@ GlobalConfiguration::GlobalConfiguration(
 void GlobalConfiguration::initialize(
     const size_t &pageCount,
     const size_t &pageSize,
-    const size_t &rootNodeFirstPageNumber)
+    const size_t &rootNodeFirstPageNumber,
+    const size_t &cacheSize)
 {
     if (m_isInitialized) {
 	throw std::string("GlobalConfiguration is already initialized");
@@ -32,6 +35,7 @@ void GlobalConfiguration::initialize(
     m_pageCount = pageCount;
     m_pageSize = pageSize;
     m_rootNodeFirstPageNumber = rootNodeFirstPageNumber;
+    m_cacheSize = cacheSize;
 }
 
 size_t GlobalConfiguration::desiredPageCount() const
@@ -66,6 +70,14 @@ size_t GlobalConfiguration::desiredRootNodeFirstPageNumber() const
     return m_rootNodeFirstPageNumber;
 }
 
+size_t GlobalConfiguration::desiredCacheSize() const
+{
+    if (m_isInitialized) {
+	throw std::string("GlobalConfiguration is already initialized");
+    }
+    return m_cacheSize;
+}
+
 size_t GlobalConfiguration::pageCount() const
 {
     if (!m_isInitialized) {
@@ -96,6 +108,14 @@ size_t GlobalConfiguration::rootNodeFirstPageNumber() const
 	throw std::string("GlobalConfiguration isn't initialized");
     }
     return m_rootNodeFirstPageNumber;
+}
+
+size_t GlobalConfiguration::cacheSize() const
+{
+    if (!m_isInitialized) {
+	throw std::string("GlobalConfiguration isn't initialized");
+    }
+    return m_cacheSize;
 }
 
 bool GlobalConfiguration::isReadedFromFile() const
@@ -130,6 +150,9 @@ void GlobalConfiguration::readFromFile(int fd)
     if (read(fd, &m_rootNodeFirstPageNumber, sizeof(m_rootNodeFirstPageNumber)) != sizeof(m_rootNodeFirstPageNumber)) {
 	throw std::string("Error reading global configuration");
     }
+    if (read(fd, &m_cacheSize, sizeof(m_cacheSize)) != sizeof(m_cacheSize)) {
+	throw std::string("Error reading global configuration");
+    }
 }
 
 void GlobalConfiguration::skipDataOnPage(Page &page) const
@@ -143,6 +166,7 @@ void GlobalConfiguration::skipDataOnPage(Page &page) const
     totalSeek += sizeof(m_pageCount);
     totalSeek += sizeof(m_pageSize);
     totalSeek += sizeof(m_rootNodeFirstPageNumber);
+    totalSeek += sizeof(m_cacheSize);
     page.seekForward(totalSeek);
 }
 
@@ -157,4 +181,5 @@ void GlobalConfiguration::writeToPage(Page &page) const
     page.write(&m_pageCount, sizeof(m_pageCount));
     page.write(&m_pageSize, sizeof(m_pageSize));
     page.write(&m_rootNodeFirstPageNumber, sizeof(m_rootNodeFirstPageNumber));
+    page.write(&m_cacheSize, sizeof(m_cacheSize));
 }

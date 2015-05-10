@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DiskPageReadWriter.h"
+#include "CachedPageReadWriter.h"
 #include "DatabaseNode.h"
 
 class Database
@@ -26,7 +26,7 @@ public:
 
 private:
     GlobalConfiguration m_globConfiguration;
-    DiskPageReadWriter m_pageReadWriter;
+    CachedPageReadWriter m_pageReadWriter;
     DatabaseNode *m_rootNode;
 
     size_t effectivePageSize() const;
