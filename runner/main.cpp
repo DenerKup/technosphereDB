@@ -74,9 +74,8 @@ int main(int argc, char *argv[]) {
 			std::cout << "bad op\n";
 		}
 	}
-
 	delete db;
-	
+
 	std::cerr << "Overall lib time: " << ((double )time / 1e9) << "\n";
 	return 0;
 }

@@ -26,8 +26,10 @@ private:
     static const char LOG_ACTION_CHANGE[LOG_ACTION_SIZE];
     static const char LOG_ACTION_DB_OPEN[LOG_ACTION_SIZE];
     static const char LOG_ACTION_DB_CLOSE[LOG_ACTION_SIZE];
+    static const char LOG_ACTION_CHECKPOINT[LOG_ACTION_SIZE];
     static const size_t LOG_SEEK_DELIM_SIZE = 1;
     static const char LOG_SEEK_DELIM[LOG_SEEK_DELIM_SIZE];
+    static const size_t CHECKPOINT_THRESHOLD = 1000;
 
     GlobalConfiguration *m_globConf;
     PageReadWriter *m_source;
@@ -36,7 +38,9 @@ private:
     std::map<size_t, size_t> m_posInCache;
     std::list<size_t> m_lruList;
     int m_logFd;
+    size_t m_writesCounter;
 
     size_t freeCachePosition();
     void flushCacheCell(size_t cachePos);
+    void writeLogStumb();
 };
