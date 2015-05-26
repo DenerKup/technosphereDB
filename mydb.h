@@ -5,6 +5,11 @@
 struct DB
 {
     Database *base;
+
+    ~DB()
+    {
+	delete base;
+    }
 };
 
 struct DBC
