@@ -14,13 +14,18 @@ public:
 	const size_t &desiredPageCount,
 	const size_t &desiredPageSize,
 	const size_t &desiredRootNodeFirstPageNumber,
-	const size_t &desiredCacheSize
+	const size_t &desiredCacheSize,
+	const char *desiredJournalPath
     );
+    
+    ~GlobalConfiguration();
+
     void initialize(
 	const size_t &pageCount,
 	const size_t &pageSize,
 	const size_t &rootNodeFirstPageNumber,
-	const size_t &cacheSize
+	const size_t &cacheSize,
+	const char *journalPath
     );
 
     size_t desiredPageCount() const;
@@ -28,11 +33,13 @@ public:
     size_t desiredDatabaseSize() const;
     size_t desiredRootNodeFirstPageNumber() const;
     size_t desiredCacheSize() const;
+    char *desiredJournalPath() const;
     size_t pageCount() const;
     size_t pageSize() const;
     size_t databaseSize() const;
     size_t rootNodeFirstPageNumber() const;
     size_t cacheSize() const;
+    char *journalPath() const;
 
     bool isReadedFromFile() const;
 
@@ -46,6 +53,7 @@ private:
     size_t m_pageSize;
     size_t m_rootNodeFirstPageNumber;
     size_t m_cacheSize;
+    char *m_journalPath;
     bool m_isReadedFromFile;
 
     GlobalConfiguration(GlobalConfiguration &) { };

@@ -11,7 +11,8 @@ Database::Database(const char *databaseFile, const Database::Configuration &conf
 	configuration.size / configuration.pageSize,
 	configuration.pageSize,
 	1,
-	configuration.cacheSize) //desired params
+	configuration.cacheSize,
+	"journal.bin") //desired params
     // line below will init m_globConfiguration if file exists
     , m_pageReadWriter(new DiskPageReadWriter(databaseFile, &m_globConfiguration), &m_globConfiguration)
     , m_rootNode(new DatabaseNode(

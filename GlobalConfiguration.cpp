@@ -11,21 +11,29 @@ GlobalConfiguration::GlobalConfiguration(
     const size_t &desiredPageCount,
     const size_t &desiredPageSize,
     const size_t &desiredRootNodeFirstPageNumber,
-    const size_t &desiredCacheSize)
+    const size_t &desiredCacheSize,
+    const char *journalPath)
     : m_isInitialized(false)
     , m_pageCount(desiredPageCount)
     , m_pageSize(desiredPageSize)
     , m_rootNodeFirstPageNumber(desiredRootNodeFirstPageNumber)
     , m_cacheSize(desiredCacheSize)
+    , m_journalPath(strdup(journalPath))
     , m_isReadedFromFile(false)
 {
+}
+
+GlobalConfiguration::~GlobalConfiguration()
+{
+    delete m_journalPath;
 }
 
 void GlobalConfiguration::initialize(
     const size_t &pageCount,
     const size_t &pageSize,
     const size_t &rootNodeFirstPageNumber,
-    const size_t &cacheSize)
+    const size_t &cacheSize,
+    const char *journalPath)
 {
     if (m_isInitialized) {
 	throw std::string("GlobalConfiguration is already initialized");
@@ -36,6 +44,11 @@ void GlobalConfiguration::initialize(
     m_pageSize = pageSize;
     m_rootNodeFirstPageNumber = rootNodeFirstPageNumber;
     m_cacheSize = cacheSize;
+    char *oldMem = m_journalPath;
+    m_journalPath = strdup(journalPath);
+    if (oldMem) {
+	delete oldMem;
+    }
 }
 
 size_t GlobalConfiguration::desiredPageCount() const
@@ -78,6 +91,14 @@ size_t GlobalConfiguration::desiredCacheSize() const
     return m_cacheSize;
 }
 
+char *GlobalConfiguration::desiredJournalPath() const
+{
+    if (m_isInitialized) {
+	throw std::string("GlobalConfiguration is already initialized");
+    }
+    return m_journalPath;
+}
+
 size_t GlobalConfiguration::pageCount() const
 {
     if (!m_isInitialized) {
@@ -118,6 +139,14 @@ size_t GlobalConfiguration::cacheSize() const
     return m_cacheSize;
 }
 
+char *GlobalConfiguration::journalPath() const
+{
+    if (!m_isInitialized) {
+	throw std::string("GlobalConfiguration isn't initialized");
+    }
+    return m_journalPath;
+}
+
 bool GlobalConfiguration::isReadedFromFile() const
 {
     if (!m_isInitialized) {
@@ -153,6 +182,14 @@ void GlobalConfiguration::readFromFile(int fd)
     if (read(fd, &m_cacheSize, sizeof(m_cacheSize)) != sizeof(m_cacheSize)) {
 	throw std::string("Error reading global configuration");
     }
+    size_t journalPathSize;
+    if (read(fd, &journalPathSize, sizeof(journalPathSize)) != sizeof(journalPathSize)) {
+	throw std::string("Error reading global configuration");
+    }
+    delete m_journalPath;
+    if (read(fd, m_journalPath, journalPathSize) != journalPathSize) {
+	throw std::string("Error reading global configuration");
+    }
 }
 
 void GlobalConfiguration::skipDataOnPage(Page &page) const
@@ -167,6 +204,8 @@ void GlobalConfiguration::skipDataOnPage(Page &page) const
     totalSeek += sizeof(m_pageSize);
     totalSeek += sizeof(m_rootNodeFirstPageNumber);
     totalSeek += sizeof(m_cacheSize);
+    totalSeek += sizeof(size_t); // journal path size
+    totalSeek += (strlen(m_journalPath) + 1) * sizeof(*m_journalPath);
     page.seekForward(totalSeek);
 }
 
@@ -182,4 +221,7 @@ void GlobalConfiguration::writeToPage(Page &page) const
     page.write(&m_pageSize, sizeof(m_pageSize));
     page.write(&m_rootNodeFirstPageNumber, sizeof(m_rootNodeFirstPageNumber));
     page.write(&m_cacheSize, sizeof(m_cacheSize));
+    size_t journalPathSize = (strlen(m_journalPath) + 1) * sizeof(*m_journalPath);
+    page.write(&journalPathSize, sizeof(journalPathSize));
+    page.write(m_journalPath, journalPathSize);
 }

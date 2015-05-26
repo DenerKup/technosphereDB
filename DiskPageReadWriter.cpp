@@ -20,7 +20,8 @@ DiskPageReadWriter::DiskPageReadWriter(const char* file, GlobalConfiguration *_g
 	    m_globConf->desiredPageCount(),
 	    m_globConf->desiredPageSize(),
 	    m_globConf->desiredRootNodeFirstPageNumber(),
-	    m_globConf->desiredCacheSize());
+	    m_globConf->desiredCacheSize(),
+	    m_globConf->desiredJournalPath());
 
 	m_fd = creat(file, 0644);
 	if (m_fd == -1) {
