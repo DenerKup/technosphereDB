@@ -12,7 +12,8 @@ const char CachedPageReadWriter::LOG_ACTION_CHANGE[CachedPageReadWriter::LOG_ACT
 const char CachedPageReadWriter::LOG_ACTION_DB_OPEN[CachedPageReadWriter::LOG_ACTION_SIZE] = "DB_OPEN";
 const char CachedPageReadWriter::LOG_ACTION_DB_CLOSE[CachedPageReadWriter::LOG_ACTION_SIZE] = "DBCLOSE";
 const char CachedPageReadWriter::LOG_ACTION_CHECKPOINT[CachedPageReadWriter::LOG_ACTION_SIZE] = "CHCKPNT";
-const char CachedPageReadWriter::LOG_ACTION_OPERATION[CachedPageReadWriter::LOG_ACTION_SIZE] = "OPERATN";
+const char CachedPageReadWriter::LOG_ACTION_INSERT[CachedPageReadWriter::LOG_ACTION_SIZE] = "INSERT_";
+const char CachedPageReadWriter::LOG_ACTION_DELETE[CachedPageReadWriter::LOG_ACTION_SIZE] = "DELETE_";
 const char CachedPageReadWriter::LOG_ACTION_COMMIT[CachedPageReadWriter::LOG_ACTION_SIZE] = "COMMIT_";
 const char CachedPageReadWriter::LOG_SEEK_DELIM[CachedPageReadWriter::LOG_SEEK_DELIM_SIZE] = {'|'};
 
@@ -21,6 +22,9 @@ CachedPageReadWriter::CachedPageReadWriter(PageReadWriter *source, GlobalConfigu
     , m_source(source)
     , m_writesCounter(0)
     , m_inOperation(false)
+    , m_pendingOperation(NONE)
+    , m_pendingKey(0, nullptr)
+    , m_pendingValue(0, nullptr)
 {
     if (m_globConf->cacheSize() % m_globConf->pageSize()) {
 	throw std::string("Page size should divide cache size.");
@@ -39,7 +43,7 @@ CachedPageReadWriter::CachedPageReadWriter(PageReadWriter *source, GlobalConfigu
     m_logFd = open(globConf->journalPath(), O_RDWR | O_CREAT, 0666);
     if (noJournalBefore) {
 	::write(m_logFd, LOG_ACTION_CHECKPOINT, LOG_ACTION_SIZE);
-	writeLogStumb();
+	writeLogStumb(LOG_ACTION_SIZE);
     } else {
 	size_t recordSize = LOG_ACTION_SIZE + sizeof(size_t) + m_globConf->pageSize();
 	lseek(m_logFd, 0, SEEK_END);
@@ -50,18 +54,37 @@ CachedPageReadWriter::CachedPageReadWriter(PageReadWriter *source, GlobalConfigu
 	do {
 	    off_t curOffset = lseek(m_logFd, -static_cast<off_t>(recordSize), SEEK_CUR);
 	    ::read(m_logFd, recordType, LOG_ACTION_SIZE);
-	    lseek(m_logFd, -static_cast<off_t>(LOG_ACTION_SIZE), SEEK_CUR);
 
 	    if (!strcmp(recordType, LOG_ACTION_COMMIT)) {
 		hasSeenOperationEnd = true;
 	    }
 
-	    if (!strcmp(recordType, LOG_ACTION_OPERATION)) {
+	    if (!strcmp(recordType, LOG_ACTION_INSERT) || !strcmp(recordType, LOG_ACTION_DELETE)) {
 		if (!hasSeenOperationEnd) {
 		    isLastOperationFinished = false;
 		    lastOperationOffset = curOffset;
+
+		    if (!strcmp(recordType, LOG_ACTION_INSERT)) {
+			m_pendingOperation = INSERT;
+
+			::read(m_logFd, &(m_pendingKey.size), sizeof(m_pendingKey.size));
+			m_pendingKey.data = new char[m_pendingKey.size];
+			::read(m_logFd, m_pendingKey.data, m_pendingKey.size);
+
+			::read(m_logFd, &(m_pendingValue.size), sizeof(m_pendingValue.size));
+			m_pendingValue.data = new char[m_pendingValue.size];
+			::read(m_logFd, m_pendingValue.data, m_pendingValue.size);
+		    } else {
+			m_pendingOperation = DELETE;
+
+			::read(m_logFd, &(m_pendingKey.size), sizeof(m_pendingKey.size));
+			m_pendingKey.data = new char[m_pendingKey.size];
+			::read(m_logFd, m_pendingKey.data, m_pendingKey.size);
+		    }
 		}
 	    }
+
+	    lseek(m_logFd, curOffset, SEEK_SET);
 	} while (strcmp(recordType, LOG_ACTION_CHECKPOINT));
 	// Now pointing begin of check point, lets skip it
 	lseek(m_logFd, recordSize, SEEK_CUR);
@@ -74,9 +97,9 @@ CachedPageReadWriter::CachedPageReadWriter(PageReadWriter *source, GlobalConfigu
 		::read(m_logFd, p.rawData(), m_globConf->pageSize());
 
 		m_source->write(p);
-	    } else if (!isLastOperationFinished && !strcmp(recordType, LOG_ACTION_OPERATION)
-		    && curOffset == lastOperationOffset) {
-		// we don't need to restore anything from here, lets delete journal from here
+	    } else if (!isLastOperationFinished && !strcmp(recordType, LOG_ACTION_INSERT)
+		    && !strcmp(recordType, LOG_ACTION_DELETE) && curOffset == lastOperationOffset) {
+		// we don't need to restore anything below, lets delete it
 		ftruncate(m_logFd, curOffset);
 		break;
 	    } else {
@@ -87,24 +110,42 @@ CachedPageReadWriter::CachedPageReadWriter(PageReadWriter *source, GlobalConfigu
 
     lseek(m_logFd, 0, SEEK_END);
     ::write(m_logFd, LOG_ACTION_DB_OPEN, LOG_ACTION_SIZE);
-    writeLogStumb();
+    writeLogStumb(LOG_ACTION_SIZE);
 }
 
-void CachedPageReadWriter::startOperation()
+CachedPageReadWriter::~CachedPageReadWriter()
 {
-    ::write(m_logFd, LOG_ACTION_OPERATION, LOG_ACTION_SIZE);
-    writeLogStumb();
+    close();
+}
+
+void CachedPageReadWriter::startOperation(OpType type, const DatabaseNode::Record &key, const DatabaseNode::Record &value)
+{
+    if (type == INSERT) {
+	// Assuming here that all of this is less than record size
+	::write(m_logFd, LOG_ACTION_INSERT, LOG_ACTION_SIZE);
+	::write(m_logFd, &(key.size), sizeof(key.size));
+	::write(m_logFd, key.data, key.size);
+	::write(m_logFd, &(value.size), sizeof(value.size));
+	::write(m_logFd, value.data, value.size);
+	writeLogStumb(LOG_ACTION_SIZE + sizeof(key.size) + key.size + sizeof(value.size) + value.size);
+    } else if (type == DELETE) {
+	::write(m_logFd, LOG_ACTION_DELETE, LOG_ACTION_SIZE);
+	::write(m_logFd, &(key.size), sizeof(key.size));
+	::write(m_logFd, key.data, key.size);
+	writeLogStumb(LOG_ACTION_SIZE + sizeof(key.size) + key.size);
+    } else {
+	throw std::string("Uknown operation type");
+    }
     m_inOperation = true;
 }
 
 void CachedPageReadWriter::endOperation()
 {
     ::write(m_logFd, LOG_ACTION_COMMIT, LOG_ACTION_SIZE);
-    writeLogStumb();
+    writeLogStumb(LOG_ACTION_SIZE);
     m_inOperation = false;
     m_pinnedCells.clear();
 }
-
 
 size_t CachedPageReadWriter::allocatePageNumber()
 {
@@ -182,9 +223,16 @@ void CachedPageReadWriter::close()
     m_source->close();
 
     ::write(m_logFd, LOG_ACTION_DB_CLOSE, LOG_ACTION_SIZE);
-    writeLogStumb();
+    writeLogStumb(LOG_ACTION_SIZE);
 
     ::close(m_logFd);
+
+    if (m_pendingKey.data) {
+	delete[] m_pendingKey.data;
+    }
+    if (m_pendingValue.data) {
+	delete[] m_pendingValue.data;
+    }
 }
 
 void CachedPageReadWriter::flushCacheCell(size_t cachePos)
@@ -203,7 +251,7 @@ void CachedPageReadWriter::flush()
     m_source->flush();
 
     ::write(m_logFd, LOG_ACTION_CHECKPOINT, LOG_ACTION_SIZE);
-    writeLogStumb();
+    writeLogStumb(LOG_ACTION_SIZE);
 }
 
 size_t CachedPageReadWriter::freeCachePosition()
@@ -227,8 +275,24 @@ size_t CachedPageReadWriter::freeCachePosition()
     throw std::string("Everything in cache is pinned. Nothing to throw out!");
 }
 
-void CachedPageReadWriter::writeLogStumb()
+void CachedPageReadWriter::writeLogStumb(size_t toSkip)
 {
-    lseek(m_logFd, sizeof(size_t) + m_globConf->pageSize() - LOG_SEEK_DELIM_SIZE, SEEK_CUR); // Seek forward other fields
+    size_t recordSize = LOG_ACTION_SIZE + sizeof(size_t) + m_globConf->pageSize();
+    lseek(m_logFd, recordSize - toSkip - LOG_SEEK_DELIM_SIZE, SEEK_CUR); // Seek forward other fields
     ::write(m_logFd, LOG_SEEK_DELIM, LOG_SEEK_DELIM_SIZE);
+}
+
+CachedPageReadWriter::OpType CachedPageReadWriter::pendingOperation() const
+{
+    return m_pendingOperation;
+}
+
+const DatabaseNode::Record &CachedPageReadWriter::pendingKey() const
+{
+    return m_pendingKey;
+}
+
+const DatabaseNode::Record &CachedPageReadWriter::pendingValue() const
+{
+    return m_pendingValue;
 }

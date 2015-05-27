@@ -7,11 +7,19 @@
 
 #include "PageReadWriter.h"
 #include "GlobalConfiguration.h"
+#include "DatabaseNode.h"
 
 class CachedPageReadWriter : public PageReadWriter
 {
 public:
+    enum OpType {
+	INSERT,
+	DELETE,
+	NONE
+    };
+
     CachedPageReadWriter(PageReadWriter *source, GlobalConfiguration *globConf);
+    ~CachedPageReadWriter();
 
     virtual size_t allocatePageNumber();
     virtual void deallocatePageNumber(const size_t &number);
@@ -22,8 +30,12 @@ public:
     virtual void close();
     virtual void flush();
 
-    void startOperation();
+    void startOperation(OpType type, const DatabaseNode::Record &key, const DatabaseNode::Record &value);
     void endOperation();
+
+    OpType pendingOperation() const;
+    const DatabaseNode::Record &pendingKey() const;
+    const DatabaseNode::Record &pendingValue() const;
 
 private:
     static const size_t LOG_ACTION_SIZE = 8;
@@ -31,7 +43,8 @@ private:
     static const char LOG_ACTION_DB_OPEN[LOG_ACTION_SIZE];
     static const char LOG_ACTION_DB_CLOSE[LOG_ACTION_SIZE];
     static const char LOG_ACTION_CHECKPOINT[LOG_ACTION_SIZE];
-    static const char LOG_ACTION_OPERATION[LOG_ACTION_SIZE];
+    static const char LOG_ACTION_DELETE[LOG_ACTION_SIZE];
+    static const char LOG_ACTION_INSERT[LOG_ACTION_SIZE];
     static const char LOG_ACTION_COMMIT[LOG_ACTION_SIZE];
 
     static const size_t LOG_SEEK_DELIM_SIZE = 1;
@@ -49,7 +62,10 @@ private:
     size_t m_writesCounter;
     bool m_inOperation;
 
+    OpType m_pendingOperation;
+    DatabaseNode::Record m_pendingKey, m_pendingValue;
+
     size_t freeCachePosition();
     void flushCacheCell(size_t cachePos);
-    void writeLogStumb();
+    void writeLogStumb(size_t toSkip);
 };

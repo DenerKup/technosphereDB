@@ -24,8 +24,13 @@ Database::Database(const char *databaseFile, const Database::Configuration &conf
 
     rootNode->writeToPages(&m_globConfiguration, m_pageReadWriter);
     delete rootNode;
-}
 
+    if (m_pageReadWriter.pendingOperation() == CachedPageReadWriter::INSERT) {
+	insert(m_pageReadWriter.pendingKey(), m_pageReadWriter.pendingValue());
+    } else if (m_pageReadWriter.pendingOperation() == CachedPageReadWriter::DELETE) {
+	remove(m_pageReadWriter.pendingKey());
+    }
+}
 
 Database::~Database()
 {
@@ -45,7 +50,7 @@ void Database::close()
 
 void Database::insert(const DatabaseNode::Record &key, const DatabaseNode::Record &value)
 {
-    m_pageReadWriter.startOperation();
+    m_pageReadWriter.startOperation(CachedPageReadWriter::INSERT, key, value);
 
     DatabaseNode *rootNode = readRootNode();
     if (rootNode->spaceOnDisk() + rootNode->additionalSpaceFor(key, value) > effectivePageSize()) {
@@ -160,7 +165,7 @@ bool Database::select(const DatabaseNode::Record &key, DatabaseNode::Record &toW
 
 void Database::remove(const DatabaseNode::Record &key)
 {
-    m_pageReadWriter.startOperation();
+    m_pageReadWriter.startOperation(CachedPageReadWriter::DELETE, key, key);
 
     DatabaseNode *rootNode = readRootNode();
     DatabaseNode::Record trash;
