@@ -19,7 +19,7 @@ Bitset::~Bitset()
 
 size_t Bitset::maskSize() const
 {
-    return Utils::roundUpDiv<size_t>(m_globConf->pageCount(), 8);
+    return indexPageCount() * m_globConf->pageSize();
 }
 
 size_t Bitset::indexPageCount() const

@@ -40,20 +40,23 @@ CachedPageReadWriter::CachedPageReadWriter(PageReadWriter *source, GlobalConfigu
 	lseek(m_logFd, 0, SEEK_END);
 	char recordType[LOG_ACTION_SIZE];
 	do {
-	    lseek(m_logFd, -recordSize, SEEK_CUR);
+	    lseek(m_logFd, -static_cast<off_t>(recordSize), SEEK_CUR);
 	    ::read(m_logFd, recordType, LOG_ACTION_SIZE);
-	    lseek(m_logFd, -LOG_ACTION_SIZE, SEEK_CUR);
+	    lseek(m_logFd, -static_cast<off_t>(LOG_ACTION_SIZE), SEEK_CUR);
 	} while (strcmp(recordType, LOG_ACTION_CHECKPOINT));
 	// Now pointing begin of check point, lets skip it
 	lseek(m_logFd, recordSize, SEEK_CUR);
-
 	while (::read(m_logFd, recordType, LOG_ACTION_SIZE) == LOG_ACTION_SIZE) {
-	    size_t pageNumber;
-	    ::read(m_logFd, &pageNumber, sizeof(pageNumber));
-	    Page p(pageNumber, m_globConf->pageSize());
-	    ::read(m_logFd, p.rawData(), m_globConf->pageSize());
+	    if (!strcmp(recordType, LOG_ACTION_CHANGE)) {
+		size_t pageNumber;
+		::read(m_logFd, &pageNumber, sizeof(pageNumber));
+		Page p(pageNumber, m_globConf->pageSize());
+		::read(m_logFd, p.rawData(), m_globConf->pageSize());
 
-	    write(p);
+		m_source->write(p);
+	    } else {
+		lseek(m_logFd, recordSize - LOG_ACTION_SIZE, SEEK_CUR); // skip this entry
+	    }
 	}
     }
 
@@ -80,6 +83,7 @@ void CachedPageReadWriter::deallocatePageNumber(const size_t &number)
 
 	m_posInCache.erase(it);
     }
+    m_source->deallocatePageNumber(number);
 }
 
 void CachedPageReadWriter::read(Page &page)

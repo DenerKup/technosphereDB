@@ -10,13 +10,13 @@ const char GlobalConfiguration::MAGIC[GlobalConfiguration::MAGIC_SIZE] = "MYDB";
 GlobalConfiguration::GlobalConfiguration(
     const size_t &desiredPageCount,
     const size_t &desiredPageSize,
-    const size_t &desiredRootNodeFirstPageNumber,
+    const size_t &desiredRootNodePageNumber,
     const size_t &desiredCacheSize,
     const char *journalPath)
     : m_isInitialized(false)
     , m_pageCount(desiredPageCount)
     , m_pageSize(desiredPageSize)
-    , m_rootNodeFirstPageNumber(desiredRootNodeFirstPageNumber)
+    , m_rootNodePageNumber(desiredRootNodePageNumber)
     , m_cacheSize(desiredCacheSize)
     , m_journalPath(strdup(journalPath))
     , m_isReadedFromFile(false)
@@ -25,13 +25,13 @@ GlobalConfiguration::GlobalConfiguration(
 
 GlobalConfiguration::~GlobalConfiguration()
 {
-    delete m_journalPath;
+    free(m_journalPath);
 }
 
 void GlobalConfiguration::initialize(
     const size_t &pageCount,
     const size_t &pageSize,
-    const size_t &rootNodeFirstPageNumber,
+    const size_t &rootNodePageNumber,
     const size_t &cacheSize,
     const char *journalPath)
 {
@@ -42,12 +42,12 @@ void GlobalConfiguration::initialize(
 
     m_pageCount = pageCount;
     m_pageSize = pageSize;
-    m_rootNodeFirstPageNumber = rootNodeFirstPageNumber;
+    m_rootNodePageNumber = rootNodePageNumber;
     m_cacheSize = cacheSize;
     char *oldMem = m_journalPath;
     m_journalPath = strdup(journalPath);
     if (oldMem) {
-	delete oldMem;
+	free(oldMem);
     }
 }
 
@@ -75,12 +75,12 @@ size_t GlobalConfiguration::desiredDatabaseSize() const
     return m_pageCount * m_pageSize;
 }
 
-size_t GlobalConfiguration::desiredRootNodeFirstPageNumber() const
+size_t GlobalConfiguration::desiredRootNodePageNumber() const
 {
     if (m_isInitialized) {
 	throw std::string("GlobalConfiguration is already initialized");
     }
-    return m_rootNodeFirstPageNumber;
+    return m_rootNodePageNumber;
 }
 
 size_t GlobalConfiguration::desiredCacheSize() const
@@ -123,12 +123,12 @@ size_t GlobalConfiguration::databaseSize() const
     return m_pageCount * m_pageSize;
 }
 
-size_t GlobalConfiguration::rootNodeFirstPageNumber() const
+size_t GlobalConfiguration::rootNodePageNumber() const
 {
     if (!m_isInitialized) {
 	throw std::string("GlobalConfiguration isn't initialized");
     }
-    return m_rootNodeFirstPageNumber;
+    return m_rootNodePageNumber;
 }
 
 size_t GlobalConfiguration::cacheSize() const
@@ -176,7 +176,7 @@ void GlobalConfiguration::readFromFile(int fd)
     if (read(fd, &m_pageSize, sizeof(m_pageSize)) != sizeof(m_pageSize)) {
 	throw std::string("Error reading global configuration");
     }
-    if (read(fd, &m_rootNodeFirstPageNumber, sizeof(m_rootNodeFirstPageNumber)) != sizeof(m_rootNodeFirstPageNumber)) {
+    if (read(fd, &m_rootNodePageNumber, sizeof(m_rootNodePageNumber)) != sizeof(m_rootNodePageNumber)) {
 	throw std::string("Error reading global configuration");
     }
     if (read(fd, &m_cacheSize, sizeof(m_cacheSize)) != sizeof(m_cacheSize)) {
@@ -186,10 +186,16 @@ void GlobalConfiguration::readFromFile(int fd)
     if (read(fd, &journalPathSize, sizeof(journalPathSize)) != sizeof(journalPathSize)) {
 	throw std::string("Error reading global configuration");
     }
-    delete m_journalPath;
+    free(m_journalPath);
+    m_journalPath = static_cast<char *>(malloc(journalPathSize));
     if (read(fd, m_journalPath, journalPathSize) != journalPathSize) {
 	throw std::string("Error reading global configuration");
     }
+}
+
+void GlobalConfiguration::setRootNodePageNumber(const size_t &newRootNodePageNumber)
+{
+    m_rootNodePageNumber = newRootNodePageNumber;
 }
 
 void GlobalConfiguration::skipDataOnPage(Page &page) const
@@ -202,7 +208,7 @@ void GlobalConfiguration::skipDataOnPage(Page &page) const
     totalSeek += MAGIC_SIZE;
     totalSeek += sizeof(m_pageCount);
     totalSeek += sizeof(m_pageSize);
-    totalSeek += sizeof(m_rootNodeFirstPageNumber);
+    totalSeek += sizeof(m_rootNodePageNumber);
     totalSeek += sizeof(m_cacheSize);
     totalSeek += sizeof(size_t); // journal path size
     totalSeek += (strlen(m_journalPath) + 1) * sizeof(*m_journalPath);
@@ -219,7 +225,7 @@ void GlobalConfiguration::writeToPage(Page &page) const
     page.write(MAGIC, MAGIC_SIZE);
     page.write(&m_pageCount, sizeof(m_pageCount));
     page.write(&m_pageSize, sizeof(m_pageSize));
-    page.write(&m_rootNodeFirstPageNumber, sizeof(m_rootNodeFirstPageNumber));
+    page.write(&m_rootNodePageNumber, sizeof(m_rootNodePageNumber));
     page.write(&m_cacheSize, sizeof(m_cacheSize));
     size_t journalPathSize = (strlen(m_journalPath) + 1) * sizeof(*m_journalPath);
     page.write(&journalPathSize, sizeof(journalPathSize));

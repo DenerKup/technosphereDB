@@ -19,7 +19,7 @@ DiskPageReadWriter::DiskPageReadWriter(const char* file, GlobalConfiguration *_g
 	m_globConf->initialize(
 	    m_globConf->desiredPageCount(),
 	    m_globConf->desiredPageSize(),
-	    m_globConf->desiredRootNodeFirstPageNumber(),
+	    m_globConf->desiredRootNodePageNumber(),
 	    m_globConf->desiredCacheSize(),
 	    m_globConf->desiredJournalPath());
 
@@ -36,8 +36,8 @@ DiskPageReadWriter::DiskPageReadWriter(const char* file, GlobalConfiguration *_g
 	// Preallocating global configuration page and root node first page >
 	m_bitset.initialize(
 	    m_globConf,
-	    {0, m_globConf->rootNodeFirstPageNumber()},
-	    m_globConf->rootNodeFirstPageNumber() + 1
+	    {0, m_globConf->rootNodePageNumber()},
+	    m_globConf->rootNodePageNumber() + 1
 	);
 	writeGlobConfAndBitset();
 
@@ -73,12 +73,14 @@ size_t DiskPageReadWriter::allocatePageNumber()
 {
     size_t res = m_bitset.freePageNumber();
     m_bitset.set(res, 1);
+    writeGlobConfAndBitset(); // HACK: dirty hack!
     return res;
 }
 
 void DiskPageReadWriter::deallocatePageNumber(const size_t &number)
 {
     m_bitset.set(number, 0);
+    writeGlobConfAndBitset(); // HACK: dirty hack!
 }
 
 void DiskPageReadWriter::read(Page &p)

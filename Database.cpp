@@ -15,18 +15,20 @@ Database::Database(const char *databaseFile, const Database::Configuration &conf
 	"journal.bin") //desired params
     // line below will init m_globConfiguration if file exists
     , m_pageReadWriter(new DiskPageReadWriter(databaseFile, &m_globConfiguration), &m_globConfiguration)
-    , m_rootNode(new DatabaseNode(
+{
+    DatabaseNode *rootNode = new DatabaseNode(
 	&m_globConfiguration,
 	m_pageReadWriter,
-	m_globConfiguration.rootNodeFirstPageNumber(),
-	m_globConfiguration.isReadedFromFile()))
-{
+	m_globConfiguration.rootNodePageNumber(),
+	m_globConfiguration.isReadedFromFile());
+
+    rootNode->writeToPages(&m_globConfiguration, m_pageReadWriter);
+    delete rootNode;
 }
+
 
 Database::~Database()
 {
-    m_rootNode->writeToPages(&m_globConfiguration, m_pageReadWriter);
-    delete m_rootNode;
     close();
 }
 
@@ -43,20 +45,26 @@ void Database::close()
 
 void Database::insert(const DatabaseNode::Record &key, const DatabaseNode::Record &value)
 {
-    if (m_rootNode->spaceOnDisk() + m_rootNode->additionalSpaceFor(key, value) > effectivePageSize()) {
+    DatabaseNode *rootNode = readRootNode();
+    if (rootNode->spaceOnDisk() + rootNode->additionalSpaceFor(key, value) > effectivePageSize()) {
 	DatabaseNode *s = createNode();
 
 	s->setIsLeaf(false);
 	s->setKeyCount(0);
-	s->linkedNodesRootPageNumbers().push_back(m_rootNode->rootPage());
+	s->linkedNodesRootPageNumbers().push_back(rootNode->rootPage());
 
-	splitChild(s, 0, m_rootNode);
-	m_rootNode->writeToPages(&m_globConfiguration, m_pageReadWriter);
-	delete m_rootNode;
+	splitChild(s, 0, rootNode);
+	rootNode->writeToPages(&m_globConfiguration, m_pageReadWriter);
+	delete rootNode;
 
-	m_rootNode = s;
+	rootNode = s;
+	m_globConfiguration.setRootNodePageNumber(rootNode->rootPage());
+	m_pageReadWriter.flush(); // HACK: this needed to flush new root page to disk
     }
-    insertNonFull(m_rootNode, key, value);
+    insertNonFull(rootNode, key, value);
+
+    rootNode->writeToPages(&m_globConfiguration, m_pageReadWriter);
+    delete rootNode;
 }
 
 void Database::insertNonFull(DatabaseNode *x, const DatabaseNode::Record &key, const DatabaseNode::Record &value)
@@ -140,19 +148,25 @@ void Database::splitChild(DatabaseNode *x, size_t i, DatabaseNode *y)
 
 bool Database::select(const DatabaseNode::Record &key, DatabaseNode::Record &toWrite)
 {
-    return selectFromNode(m_rootNode, key, toWrite);
+    DatabaseNode *rootNode = readRootNode();
+    bool result = selectFromNode(rootNode, key, toWrite);
+    delete rootNode;
+    return result;
 }
 
 void Database::remove(const DatabaseNode::Record &key)
 {
+    DatabaseNode *rootNode = readRootNode();
     DatabaseNode::Record trash;
     if (!select(key, trash)) {
 	return;
     }
-    removeFromNode(m_rootNode, key);
+    removeFromNode(rootNode, key);
+    rootNode->writeToPages(&m_globConfiguration, m_pageReadWriter);
+    delete rootNode;
 }
 
-// To be implemented
+// TODO: To be implemented
 void Database::sync()
 {
 }
@@ -323,6 +337,16 @@ DatabaseNode *Database::loadNode(size_t pageNum)
 	&m_globConfiguration,
 	m_pageReadWriter,
 	pageNum,
+	true
+    );
+}
+
+DatabaseNode *Database::readRootNode()
+{
+    return new DatabaseNode(
+	&m_globConfiguration,
+	m_pageReadWriter,
+	m_globConfiguration.rootNodePageNumber(),
 	true
     );
 }

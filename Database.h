@@ -27,7 +27,6 @@ public:
 private:
     GlobalConfiguration m_globConfiguration;
     CachedPageReadWriter m_pageReadWriter;
-    DatabaseNode *m_rootNode;
 
     size_t effectivePageSize() const;
 
@@ -56,6 +55,7 @@ private:
 
     DatabaseNode *loadNode(size_t pageNum);
     DatabaseNode *createNode();
+    DatabaseNode *readRootNode();
 
     void findRightmostKey(
 	DatabaseNode *node,
