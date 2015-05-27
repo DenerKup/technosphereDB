@@ -45,6 +45,8 @@ void Database::close()
 
 void Database::insert(const DatabaseNode::Record &key, const DatabaseNode::Record &value)
 {
+    m_pageReadWriter.startOperation();
+
     DatabaseNode *rootNode = readRootNode();
     if (rootNode->spaceOnDisk() + rootNode->additionalSpaceFor(key, value) > effectivePageSize()) {
 	DatabaseNode *s = createNode();
@@ -65,6 +67,8 @@ void Database::insert(const DatabaseNode::Record &key, const DatabaseNode::Recor
 
     rootNode->writeToPages(&m_globConfiguration, m_pageReadWriter);
     delete rootNode;
+
+    m_pageReadWriter.endOperation();
 }
 
 void Database::insertNonFull(DatabaseNode *x, const DatabaseNode::Record &key, const DatabaseNode::Record &value)
@@ -156,6 +160,8 @@ bool Database::select(const DatabaseNode::Record &key, DatabaseNode::Record &toW
 
 void Database::remove(const DatabaseNode::Record &key)
 {
+    m_pageReadWriter.startOperation();
+
     DatabaseNode *rootNode = readRootNode();
     DatabaseNode::Record trash;
     if (!select(key, trash)) {
@@ -164,6 +170,8 @@ void Database::remove(const DatabaseNode::Record &key)
     removeFromNode(rootNode, key);
     rootNode->writeToPages(&m_globConfiguration, m_pageReadWriter);
     delete rootNode;
+
+    m_pageReadWriter.endOperation();
 }
 
 // TODO: To be implemented

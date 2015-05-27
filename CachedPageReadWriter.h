@@ -3,6 +3,7 @@
 #include <vector>
 #include <map>
 #include <list>
+#include <set>
 
 #include "PageReadWriter.h"
 #include "GlobalConfiguration.h"
@@ -21,12 +22,18 @@ public:
     virtual void close();
     virtual void flush();
 
+    void startOperation();
+    void endOperation();
+
 private:
     static const size_t LOG_ACTION_SIZE = 8;
     static const char LOG_ACTION_CHANGE[LOG_ACTION_SIZE];
     static const char LOG_ACTION_DB_OPEN[LOG_ACTION_SIZE];
     static const char LOG_ACTION_DB_CLOSE[LOG_ACTION_SIZE];
     static const char LOG_ACTION_CHECKPOINT[LOG_ACTION_SIZE];
+    static const char LOG_ACTION_OPERATION[LOG_ACTION_SIZE];
+    static const char LOG_ACTION_COMMIT[LOG_ACTION_SIZE];
+
     static const size_t LOG_SEEK_DELIM_SIZE = 1;
     static const char LOG_SEEK_DELIM[LOG_SEEK_DELIM_SIZE];
     static const size_t CHECKPOINT_THRESHOLD = 1000;
@@ -35,10 +42,12 @@ private:
     PageReadWriter *m_source;
     std::vector<Page *> m_cache;
     std::vector<bool> m_isDirty;
+    std::set<size_t> m_pinnedCells;
     std::map<size_t, size_t> m_posInCache;
     std::list<size_t> m_lruList;
     int m_logFd;
     size_t m_writesCounter;
+    bool m_inOperation;
 
     size_t freeCachePosition();
     void flushCacheCell(size_t cachePos);
